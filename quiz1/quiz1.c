@@ -1,111 +1,96 @@
-typedef struct __node {
-  struct __node *left, *right;
-  struct __node *next;
-  long value;
-} node_t;
-
-void list_add(node_t **list, node_t *node_t) {
-  node_t->next = *list;
-  *list = node_t;
-}
-
-node_t *list_tail(node_t **left) {
-  while ((*left) && (*left)->next)
-    left = &((*left)->next); // AAAA
-  return *left;
-}
-
-int list_length(node_t **left) {
-  int n = 0;
-  while (*left) {
-    ++n;
-    left = &((*left)->next); // BBBB
-  }
-  return n;
-}
-
-node_t *list_construct(node_t *list, int n) {
-  node_t *node = malloc(sizeof(node_t));
-  node->next = list;
-  node->value = n;
-  return node;
-}
-
-void list_free(node_t **list) {
-  node_t *node = (*list)->next;
-  while (*list) {
-    free(*list);
-    *list = node;
-    if (node)
-      node = node->next;
-  }
-}
-
+#include "list.h"
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
+typedef struct __node {
+  long value;
+  struct list_head head;
+} node_t;
+
+int list_length(struct list_head *list) {
+  int i = 0;
+  node_t *entry;
+  list_for_each_entry(entry, list, head) { i++; }
+  return i;
+}
+
+void list_construct(struct list_head *list, int n) {
+  node_t *node = malloc(sizeof(node_t));
+  node->value = n;
+  list_add(&node->head, list);
+}
+
+void list_free(struct list_head *list) {
+  node_t *entry, *tmp;
+  list_for_each_entry_safe(entry, tmp, list, head) { free(entry); }
+}
+
 /* Verify if list is order */
-static bool list_is_ordered(node_t *list) {
+static bool list_is_ordered(struct list_head *list) {
   bool first = true;
   int value;
-  while (list) {
+  node_t *entry;
+
+  list_for_each_entry(entry, list, head) {
     if (first) {
-      value = list->value;
+      value = entry->value;
       first = false;
     } else {
-      if (list->value < value)
+      if (entry->value < value)
         return false;
-      value = list->value;
+      value = entry->value;
     }
-    list = list->next;
   }
   return true;
 }
 
-void quick_sort(node_t **list) {
+void quick_sort(struct list_head *list) {
   int n = list_length(list);
-  int value;
-  int i = 0;
-  int max_level = 2 * n;
-  node_t *begin[max_level], *end[max_level];
-  node_t *result = NULL, *left = NULL, *right = NULL;
+  int value, i, max_level = 2 * n;
+  struct list_head begin[max_level];
+  LIST_HEAD(left);
+  LIST_HEAD(right);
 
-  begin[0] = *list;
-  end[0] = list_tail(list);
+  i = 0;
+  while (i < max_level)
+    INIT_LIST_HEAD(&begin[i++]);
+  list_splice(list, &begin[0]);
+  INIT_LIST_HEAD(list);
 
+  i = 0;
   while (i >= 0) {
-    node_t *L = begin[i], *R = end[i];
-    if (L != R) {
-      node_t *pivot = L;
-      value = pivot->value;
-      node_t *p = pivot->next;
-      pivot->next = NULL;
+    struct list_head *L = &begin[i];
 
-      while (p) {
-        node_t *n = p;
-        p = p->next; // CCCC
-        list_add(n->value > value ? &right : &left, n);
+    if (!list_empty(L) && !list_is_singular(L)) {
+      node_t *pivot = list_first_entry(L, node_t, head);
+      list_del(&pivot->head);
+      value = pivot->value;
+
+      node_t *pos, *tmp;
+      list_for_each_entry_safe(pos, tmp, L, head) {
+        list_del(&pos->head);
+        list_add(&pos->head, pos->value > value ? &right : &left);
       }
 
-      begin[i] = left;
-      end[i] = list_tail(&left); // DDDD
-      begin[i + 1] = pivot;
-      end[i + 1] = pivot;
-      begin[i + 2] = right;
-      end[i + 2] = list_tail(&right); // EEEE
+      list_splice(&left, &begin[i]);
+      list_add(&pivot->head, &begin[i + 1]);
+      list_splice(&right, &begin[i + 2]);
+      INIT_LIST_HEAD(&left);
+      INIT_LIST_HEAD(&right);
 
-      left = right = NULL;
       i += 2;
     } else {
-      if (L)
-        list_add(&result, L);
+      if (list_is_singular(L)) {
+        node_t *tmp = list_first_entry(L, node_t, head);
+        list_del(&tmp->head);
+        list_add(&tmp->head, list);
+      }
       i--;
     }
   }
-  *list = result;
 }
 
 /* shuffle array, only work if n < RAND_MAX */
@@ -122,7 +107,7 @@ void shuffle(int *array, size_t n) {
 }
 
 int main(int argc, char **argv) {
-  node_t *list = NULL;
+  LIST_HEAD(list);
 
   size_t count = 100000;
 
@@ -133,14 +118,15 @@ int main(int argc, char **argv) {
   shuffle(test_arr, count);
 
   while (count--)
-    list = list_construct(list, test_arr[count]);
+    list_construct(&list, test_arr[count]);
 
   quick_sort(&list);
-  assert(list_is_ordered(list));
+
+  assert(list_is_ordered(&list));
 
   list_free(&list);
 
   free(test_arr);
 
-  return;
+  return 0;
 }
